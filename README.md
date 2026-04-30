@@ -1,10 +1,10 @@
-# Outlook Skill for BrainClaw
+# Outlook Skill
 
 A Python-based skill for managing Microsoft Outlook emails through command-line interface. This skill provides comprehensive email operations including search, compose, reply, forward, and folder management.
 
 ## Overview
 
-This is a **skill module** for the BrainClaw assistant system that interfaces directly with Microsoft Outlook via COM automation. It uses **message_id** for email identification and operates without caching - all operations work directly with Outlook.
+This is a **universal skill module** that can be integrated with any AI assistant system. It interfaces directly with Microsoft Outlook via COM automation, uses **message_id** for email identification, and operates without caching - all operations work directly with Outlook.
 
 ## Key Features
 
@@ -30,6 +30,17 @@ pip install -r config/requirements.txt
 ```
 
 Ensure Outlook is running - the skill requires Outlook to be open and logged in. Works with both desktop and Microsoft 365 Outlook.
+
+## Integration with AI Systems
+
+This skill can be integrated with various AI assistant systems:
+
+- **BrainClaw**: Native integration as a skill module
+- **Claude Desktop**: Via MCP (Model Context Protocol) server
+- **Custom AI Systems**: Direct CLI integration or Python API
+- **Other Assistants**: Adaptable to any system that can execute Python scripts
+
+The skill provides both CLI interface and programmatic API for flexible integration.
 
 ## Usage
 
@@ -317,16 +328,17 @@ Each email returned contains:
 
 ## Contributing
 
-This skill is part of the BrainClaw assistant system. For contributions:
+Contributions are welcome! For contributions:
 
 1. Follow the existing code structure
 2. Add proper error handling
 3. Update documentation for new features
 4. Test with various Outlook configurations
+5. Submit pull requests with clear descriptions
 
 ## License
 
-Part of the BrainClaw assistant system.
+MIT License - See LICENSE file for details.
 
 ---
 

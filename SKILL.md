@@ -13,7 +13,7 @@ operations: ["list-recent", "search", "compose", "reply", "batch-forward", "cont
 
 ### List Recent Emails
 ```bash
-py -3 assistant_brain/skills/outlook/scripts/outlook_skill.py list-recent --days 7
+py -3 scripts/outlook_skill.py list-recent --days 7
 ```
 - Shows: To/CC, attachments (with filenames), body preview
 - `--days`: 1-30 (default: 7)
@@ -21,7 +21,7 @@ py -3 assistant_brain/skills/outlook/scripts/outlook_skill.py list-recent --days
 
 ### Search Emails
 ```bash
-py -3 assistant_brain/skills/outlook/scripts/outlook_skill.py search --type sender --query "Name" --days 30
+py -3 scripts/outlook_skill.py search --type sender --query "Name" --days 30
 ```
 - `--type`: subject, sender, recipient, body
 - `--query`: search text (required)
@@ -30,27 +30,27 @@ py -3 assistant_brain/skills/outlook/scripts/outlook_skill.py search --type send
 
 ### Contact Lookup (Use Before Search by Email)
 ```bash
-py -3 assistant_brain/skills/outlook/scripts/outlook_skill.py lookup-contact "user@domain.com"
+py -3 scripts/outlook_skill.py lookup-contact "user@domain.com"
 ```
 - Returns: Display name, company, job title
 - **Why:** Outlook search by email address unreliable; use display name instead
 
 ### Reply to Email
 ```bash
-py -3 assistant_brain/skills/outlook/scripts/outlook_skill.py reply "<email_id>" "<p>HTML body</p>" [--send]
+py -3 scripts/outlook_skill.py reply "<email_id>" "<p>HTML body</p>" [--send]
 ```
 - Default: Preview only
 - `--send`: Actually send email
 
 ### Compose Email
 ```bash
-py -3 assistant_brain/skills/outlook/scripts/outlook_skill.py compose --to "email" --subject "text" --body "<p>HTML</p>"
+py -3 scripts/outlook_skill.py compose --to "email" --subject "text" --body "<p>HTML</p>"
 ```
 - Always sends immediately
 
 ### Batch Forward
 ```bash
-py -3 assistant_brain/skills/outlook/scripts/outlook_skill.py batch-forward "<email_id>" "recipients.csv"
+py -3 scripts/outlook_skill.py batch-forward "<email_id>" "recipients.csv"
 ```
 - CSV: single column named "email"
 - Uses BCC for privacy
