@@ -1,5 +1,5 @@
 """
-Utility functions for Outlook MCP server session management.
+Utility functions for Outlook Skill session management.
 
 This module provides utility functions for handling Outlook sessions, 
 COM objects, and common operations that don't fit into the main classes.

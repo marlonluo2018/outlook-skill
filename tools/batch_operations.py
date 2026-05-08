@@ -1,4 +1,4 @@
-"""Batch operations tools for Outlook MCP Server."""
+"""Batch operations tools for Outlook Skill."""
 
 from typing import Dict, Any
 from backend.batch_operations import batch_forward_emails

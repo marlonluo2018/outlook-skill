@@ -1,4 +1,4 @@
-"""Unified validation utilities for Outlook MCP Server.
+"""Unified validation utilities for Outlook Skill.
 
 This module consolidates all common validation patterns to eliminate code duplication.
 """

@@ -1,5 +1,5 @@
 """
-Outlook Session Management Package for MCP Server.
+Outlook Session Management Package for Outlook Skill.
 
 This package provides comprehensive Outlook session management functionality,
 including connection handling, folder operations, email operations, and utility functions.

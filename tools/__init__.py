@@ -1,9 +1,9 @@
-"""MCP Tools Package for Outlook MCP Server.
+"""Tools Package for Outlook Skill.
 
-This package contains all MCP tool definitions organized by functionality:
+This package contains tool wrapper functions organized by functionality:
 - folder_tools: Folder management operations
-- search_tools: Email search functionality  
-- viewing_tools: Email viewing and cache management
+- search_tools: Email search functionality
+- viewing_tools: Email viewing operations
 - email_operations: Email composition and manipulation
 - batch_operations: Batch email operations
 """

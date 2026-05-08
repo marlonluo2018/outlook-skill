@@ -26,7 +26,7 @@ This is a **universal skill module** that can be integrated with any AI assistan
 
 Install Python dependencies:
 ```bash
-pip install -r config/requirements.txt
+pip install -r requirements.txt
 ```
 
 Ensure Outlook is running - the skill requires Outlook to be open and logged in. Works with both desktop and Microsoft 365 Outlook.
@@ -36,11 +36,10 @@ Ensure Outlook is running - the skill requires Outlook to be open and logged in.
 This skill can be integrated with various AI assistant systems:
 
 - **BrainClaw**: Native integration as a skill module
-- **Claude Desktop**: Via MCP (Model Context Protocol) server
 - **Custom AI Systems**: Direct CLI integration or Python API
 - **Other Assistants**: Adaptable to any system that can execute Python scripts
 
-The skill provides both CLI interface and programmatic API for flexible integration.
+The skill provides CLI interface and programmatic API for flexible integration.
 
 ## Usage
 
@@ -175,15 +174,15 @@ outlook-skill/
 │   ├── config.py                
 │   ├── validation.py            
 │   └── email_composition.py     
-├── tools/                       
-│   ├── search_tools.py          
-│   ├── email_operations.py      
-│   ├── folder_tools.py          
-│   └── registration.py          
+├── tools/
+│   ├── search_tools.py
+│   ├── email_operations.py
+│   ├── folder_tools.py
+│   ├── batch_operations.py
+│   └── viewing_tools.py
 ├── scripts/
 │   └── outlook_skill.py         
-└── config/
-    └── requirements.txt         
+└── requirements.txt
 ```
 
 ### Key Design Principles
@@ -324,7 +323,7 @@ Each email returned contains:
 - SKILL.md - Quick reference guide
 - scripts/outlook_skill.py - Main CLI implementation
 - backend/config.py - Configuration settings
-- tools/registration.py - MCP tool registration
+- tools/ - API wrapper functions for programmatic access
 
 ## Contributing
 

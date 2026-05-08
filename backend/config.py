@@ -1,4 +1,4 @@
-"""Centralized configuration for Outlook MCP Server.
+"""Centralized configuration for Outlook Skill.
 
 This module consolidates all configuration constants to enable easy
 customization and environment-specific settings.

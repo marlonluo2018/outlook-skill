@@ -1,4 +1,4 @@
-"""Email viewing tools for Outlook MCP Server - Simplified without cache."""
+"""Email viewing tools for Outlook Skill - Simplified without cache."""
 
 # Type imports
 from typing import Any, Dict, Optional

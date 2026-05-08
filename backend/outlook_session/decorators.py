@@ -1,5 +1,5 @@
 """
-Decorators for Outlook MCP server session management.
+Decorators for Outlook Skill session management.
 
 This module provides decorators for handling COM operations, retries, 
 and other common patterns used throughout the session management code.

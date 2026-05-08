@@ -1,3 +1,3 @@
 """
-Backend module for Outlook MCP Server.
+Backend module for Outlook Skill.
 """

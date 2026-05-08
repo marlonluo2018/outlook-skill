@@ -1,4 +1,4 @@
-"""Email operations tools for Outlook MCP Server."""
+"""Email operations tools for Outlook Skill."""
 
 from typing import Dict, Any, Union, List, Optional
 from backend.email_composition import reply_to_email_by_message_id, compose_email

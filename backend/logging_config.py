@@ -1,4 +1,4 @@
-"""Logging configuration for Outlook MCP Server."""
+"""Logging configuration for Outlook Skill."""
 
 import logging
 import os
@@ -6,8 +6,8 @@ import sys
 from typing import Optional
 
 # Environment variable to control debug logging
-DEBUG_ENV_VAR = "OUTLOOK_MCP_DEBUG"
-LOG_LEVEL_ENV_VAR = "OUTLOOK_MCP_LOG_LEVEL"
+DEBUG_ENV_VAR = "OUTLOOK_SKILL_DEBUG"
+LOG_LEVEL_ENV_VAR = "OUTLOOK_SKILL_LOG_LEVEL"
 
 # Default log format
 DEFAULT_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

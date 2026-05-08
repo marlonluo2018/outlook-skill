@@ -1,4 +1,4 @@
-"""Email search tools for Outlook MCP Server - Direct message_id approach (no cache)."""
+"""Email search tools for Outlook Skill - Direct message_id approach (no cache)."""
 
 # Type imports
 from typing import Any, Dict, List, Optional

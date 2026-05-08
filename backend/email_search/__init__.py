@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Email search functionality for Outlook MCP server.
+"""Email search functionality for Outlook Skill.
 
 This package provides various email search capabilities including:
 |- Subject-based searches

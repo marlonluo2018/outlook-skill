@@ -1,4 +1,4 @@
-"""Folder management tools for Outlook MCP Server."""
+"""Folder management tools for Outlook Skill."""
 
 from typing import Dict, Any, Optional
 from backend.outlook_session import OutlookSessionManager
@@ -45,7 +45,7 @@ def get_folder_list_tool() -> Dict[str, Any]:
     """Lists all Outlook mail folders in a hierarchical structure.
 
     Returns:
-        dict: MCP response with formatted hierarchical folder structure
+        dict: Response with formatted hierarchical folder structure
 
     """
     try:
