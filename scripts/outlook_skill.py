@@ -591,13 +591,24 @@ def cmd_compose(args):
 def cmd_batch_forward(args):
     """Batch forward email to multiple recipients by email ID"""
     try:
+        # Load configuration
+        import json
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'config.json')
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                batch_size = config.get('batch_forward', {}).get('batch_size', 500)
+        except (FileNotFoundError, json.JSONDecodeError):
+            # Fallback to default if config file not found or invalid
+            batch_size = 500
+        
         with OutlookSessionManager() as session:
             email_item = session.outlook.GetNamespace("MAPI").GetItemFromID(args.email_id)
             
-            # Read CSV file
+            # Read CSV file (handle BOM if present)
             import csv
             recipients = []
-            with open(args.csv_path, 'r', encoding='utf-8') as f:
+            with open(args.csv_path, 'r', encoding='utf-8-sig') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     if 'email' in row:
@@ -607,8 +618,7 @@ def cmd_batch_forward(args):
                 print("Error: No email addresses found in CSV", file=sys.stderr)
                 return 1
             
-            # Forward to recipients in batches (max 500 per batch)
-            batch_size = 500
+            # Forward to recipients in batches (batch size from config file)
             total_sent = 0
             
             for i in range(0, len(recipients), batch_size):
@@ -617,13 +627,20 @@ def cmd_batch_forward(args):
                 # Create forward
                 forward = email_item.Forward()
                 
-                # Add custom message if provided
+                # Add custom message if provided (insert into body tag like reply does)
                 if args.message:
-                    forward.Body = args.message + "\n\n" + forward.Body
+                    # Simple approach: just prepend message directly like reply function does
+                    # Outlook will handle the spacing automatically
+                    message_html = '<p>' + args.message.replace('\n\n', '</p><p>').replace('\n', '<br>') + '</p>'
+                    forward.HTMLBody = message_html + forward.HTMLBody
                 
                 # Add recipients as BCC (to protect privacy)
                 for recipient in batch:
-                    forward.BCC += recipient + ";"
+                    bcc_recip = forward.Recipients.Add(recipient)
+                    bcc_recip.Type = 3  # 3 = olBCC
+                
+                # Resolve all recipients before sending
+                forward.Recipients.ResolveAll()
                 
                 # Send
                 forward.Send()
@@ -779,7 +796,7 @@ def main():
     parser_batch = subparsers.add_parser('batch-forward', help='Batch forward email by ID to multiple recipients')
     parser_batch.add_argument('email_id', help='Email ID from search results')
     parser_batch.add_argument('csv_path', help='Path to CSV file with email addresses')
-    parser_batch.add_argument('--message', help='Custom message to prepend')
+    parser_batch.add_argument('--message', help='Custom message to prepend (HTML format)')
     parser_batch.set_defaults(func=cmd_batch_forward)
     
     # Create folder command

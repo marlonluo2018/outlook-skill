@@ -50,10 +50,31 @@ py -3 scripts/outlook_skill.py compose --to "email" --subject "text" --body "<p>
 
 ### Batch Forward
 ```bash
-py -3 scripts/outlook_skill.py batch-forward "<email_id>" "recipients.csv"
+py -3 scripts/outlook_skill.py batch-forward "<email_id>" "recipients.csv" --message "<p>HTML body</p>"
 ```
-- CSV: single column named "email"
+- CSV: single column named "email" (supports BOM encoding)
+- `--message`: Optional HTML message to prepend (same format as reply)
 - Uses BCC for privacy
+- Preserves original email formatting
+- Automatically splits large recipient lists into batches
+- **Batch size:** Configured in [`config.json`](config.json) (default: 500)
+
+## Configuration
+
+Edit [`config.json`](config.json) to customize settings:
+
+```json
+{
+  "batch_forward": {
+    "batch_size": 500
+  }
+}
+```
+
+**Batch size recommendations:**
+- **500** (default): Recommended for production use
+- **100**: For testing with smaller batches
+- **1000**: Maximum (may hit Exchange server limits)
 
 ## HTML Format Examples
 
@@ -62,6 +83,20 @@ py -3 scripts/outlook_skill.py batch-forward "<email_id>" "recipients.csv"
 <p>Message text here.</p>
 <p>Best regards,<br>Marlon</p>
 ```
+
+## ⚠️ Special Characters in Email Body
+
+**CRITICAL:** Replace `$` with `&#36;` in HTML body to avoid shell variable issues.
+
+```html
+<!-- ❌ WRONG: $80,000 displays as ,000 -->
+<p>Cost: $80,000 USD</p>
+
+<!-- ✅ CORRECT: Use HTML entity -->
+<p>Cost: &#36;80,000 USD</p>
+```
+
+**Common HTML entities:** `$` = `&#36;` | `&` = `&amp;` | `<` = `&lt;` | `>` = `&gt;`
 
 ## Search Workflow for Email Addresses
 
