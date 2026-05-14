@@ -17,6 +17,42 @@ from .validators import EmailComposeParams, EmailReplyParams
 logger = get_logger(__name__)
 
 
+def _get_email_item(session, message_id: str):
+    """Resolve an Outlook item by EntryID, retrying across all stores when needed."""
+    namespace = session.namespace or session.outlook.GetNamespace("MAPI")
+
+    try:
+        return namespace.GetItemFromID(message_id)
+    except Exception as first_error:
+        last_error = first_error
+
+        try:
+            stores = getattr(namespace, "Folders", None)
+            if stores:
+                for i in range(1, stores.Count + 1):
+                    try:
+                        store_root = stores.Item(i)
+                        store_id = getattr(store_root, "StoreID", "")
+                        if not store_id:
+                            continue
+                        return namespace.GetItemFromID(message_id, store_id)
+                    except Exception as store_error:
+                        last_error = store_error
+                        continue
+        except Exception:
+            pass
+
+        raise last_error
+
+
+def _format_forward_message_html(message_text: str) -> str:
+    """Convert plain text into the same simple HTML block used by the CLI forward path."""
+    if not message_text:
+        return ""
+
+    return "<p>" + message_text.replace("\n\n", "</p><p>").replace("\n", "<br>") + "</p>"
+
+
 def reply_to_email_by_message_id(
     message_id: str,
     reply_text: str,
@@ -228,6 +264,84 @@ def reply_to_email_by_message_id(
         except Exception as e:
             logger.error(f"Error replying to email with message_id {message_id}: {e}")
             return f"Error replying to email: {str(e)}"
+
+
+def forward_email_by_message_id(
+    message_id: str,
+    to_recipients: Optional[Union[str, List[str]]] = None,
+    cc_recipients: Optional[Union[str, List[str]]] = None,
+    body_text: str = "",
+) -> str:
+    """
+    Forward an email using its message_id.
+
+    Args:
+        message_id: The Outlook entry_id of the email to forward
+        to_recipients: Single email string or list of email strings for To
+        cc_recipients: Single email string or list of email strings for CC
+        body_text: Optional custom message to prepend (HTML format)
+
+    Returns:
+        str: Success or error message
+    """
+    if not message_id or not isinstance(message_id, str):
+        raise ValueError("message_id must be a non-empty string")
+
+    # Convert to list if needed
+    if to_recipients and isinstance(to_recipients, str):
+        to_recipients = [to_recipients]
+    if cc_recipients and isinstance(cc_recipients, str):
+        cc_recipients = [cc_recipients]
+
+    if not to_recipients:
+        raise ValueError("At least one To recipient is required")
+
+    with OutlookSessionManager() as session:
+        try:
+            email = _get_email_item(session, message_id)
+            if not email:
+                raise RuntimeError("Could not retrieve the email from Outlook.")
+
+            forward = email.Forward()
+
+            # Set subject with FW: prefix
+            subject = safe_encode_text(getattr(email, "Subject", "No Subject"), "subject")
+            forward.Subject = f"FW: {subject}" if not subject.startswith("FW:") else subject
+
+            # Add To recipients
+            if to_recipients:
+                for r in to_recipients:
+                    r = r.strip()
+                    if r:
+                        forward.Recipients.Add(r)
+
+            # Add CC recipients
+            if cc_recipients:
+                for r in cc_recipients:
+                    r = r.strip()
+                    if r:
+                        cc_recip = forward.Recipients.Add(r)
+                        cc_recip.Type = 2  # 2 = olCC
+
+            # Prepend custom message if provided
+            if body_text:
+                body_text_safe = safe_encode_text(body_text, "body_text")
+                forward.HTMLBody = _format_forward_message_html(body_text_safe) + forward.HTMLBody
+
+            if forward.Recipients.Count == 0:
+                raise RuntimeError("No recipients specified for forward")
+
+            resolved = forward.Recipients.ResolveAll()
+            if resolved is False:
+                raise RuntimeError("One or more forward recipients could not be resolved")
+
+            forward.Send()
+            logger.info(f"Successfully forwarded email with message_id: {message_id}")
+            return "Successfully forwarded email"
+
+        except Exception as e:
+            logger.error(f"Error forwarding email with message_id {message_id}: {e}")
+            return f"Error forwarding email: {str(e)}"
 
 
 def compose_email(

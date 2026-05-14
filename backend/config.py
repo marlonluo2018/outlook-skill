@@ -173,13 +173,16 @@ class ValidationConfig:
 
 class SearchConfig:
     """Search configuration settings.
-    
+
     These settings control search behavior including time ranges
     and search field preferences.
     """
-    
-    MAX_SEARCH_DAYS = 30  # Maximum days to search back (configurable)
+
+    MAX_SEARCH_DAYS = 365  # Maximum days to search back (configurable)
     DEFAULT_SEARCH_DAYS = 7  # Default days if not specified
+    RELATED_SEARCH_DAYS = 90  # Default lookback for find-related
+    THREAD_SEARCH_DAYS = 365  # Thread search covers full history
+
 
 
 search_config = SearchConfig()

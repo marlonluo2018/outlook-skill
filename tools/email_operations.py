@@ -1,7 +1,7 @@
 """Email operations tools for Outlook Skill."""
 
 from typing import Dict, Any, Union, List, Optional
-from backend.email_composition import reply_to_email_by_message_id, compose_email
+from backend.email_composition import reply_to_email_by_message_id, compose_email, forward_email_by_message_id
 from backend.outlook_session import OutlookSessionManager
 from backend.validation import ValidationError
 
@@ -83,6 +83,35 @@ def compose_email_tool(recipient_email: str, subject: str, body: str, cc_email: 
         return {"type": "text", "text": result}
     except Exception as e:
         return {"type": "text", "text": f"Error composing email: {str(e)}"}
+
+
+def forward_email_tool(
+    message_id: str,
+    to_recipients: Union[str, List[str]],
+    cc_recipients: Optional[Union[str, List[str]]] = None,
+    body_text: str = "",
+) -> Dict[str, Any]:
+    """Forward an email using its message_id to specified recipients.
+
+    Args:
+        message_id: The Outlook entry_id of the email to forward
+        to_recipients: Single email string or list of email strings for To
+        cc_recipients: Single email string or list of email strings for CC
+        body_text: Optional custom message to prepend (HTML format)
+
+    Returns:
+        dict: Response containing confirmation message
+    """
+    if not message_id or not isinstance(message_id, str):
+        raise ValidationError("message_id must be a non-empty string")
+    if not to_recipients:
+        raise ValidationError("At least one To recipient is required")
+
+    try:
+        result = forward_email_by_message_id(message_id, to_recipients, cc_recipients, body_text)
+        return {"type": "text", "text": result}
+    except Exception as e:
+        return {"type": "text", "text": f"Error forwarding email: {str(e)}"}
 
 
 def move_email_tool(message_id: str, target_folder_name: str) -> Dict[str, Any]:

@@ -30,6 +30,7 @@ from .viewing_tools import (
 from .email_operations import (
     reply_to_email_tool,
     compose_email_tool,
+    forward_email_tool,
     move_email_tool,
     delete_email_tool,
 )
@@ -56,6 +57,7 @@ __all__ = [
     # Email operations
     'reply_to_email_tool',
     'compose_email_tool',
+    'forward_email_tool',
     'move_email_tool',
     'delete_email_tool',
     

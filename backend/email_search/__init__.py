@@ -33,10 +33,18 @@ from .search_common import get_folder_path_safe, get_date_limit, is_server_searc
 from .parallel_extractor import extract_emails_optimized
 
 # Import unified search
-from .unified_search import unified_search
+from .unified_search import (
+    find_related_emails,
+    find_thread_by_email_id,
+    unified_search,
+)
 
 # Import server search
-from .server_search import server_side_search
+from .server_search import (
+    multi_folder_search,
+    search_by_conversation_id,
+    server_side_search,
+)
 
 __all__ = [
     # Search functions from modular components
@@ -44,17 +52,17 @@ __all__ = [
     "search_email_by_sender",
     "search_email_by_recipient",
     "search_email_by_body",
-    
+
     # Email listing functions
     "list_folders",
     "list_recent_emails",
     "get_emails_from_folder",
     "get_folder_emails",
-    
+
     # Search functions from modular components
     "search_email_by_from",
     "search_email_by_to",
-    
+
     # Shared utilities
     "get_folder_path_safe",
     "get_date_limit",
@@ -63,8 +71,14 @@ __all__ = [
     "extract_email_info_minimal",
     "clear_com_attribute_cache",
     "extract_emails_optimized",
-    
+
     # Search implementations
     "unified_search",
     "server_side_search",
+    "multi_folder_search",
+    "search_by_conversation_id",
+
+    # Thread and related email search
+    "find_thread_by_email_id",
+    "find_related_emails",
 ]

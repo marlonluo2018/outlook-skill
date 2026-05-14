@@ -201,6 +201,9 @@ def extract_email_info_minimal(item) -> Dict[str, Any]:
             "subject": subject,
             "sender": sender,
             "received_time": str(received_time) if received_time else "Unknown",
+            "folder": _get_folder_name(item),
+            "conversation_id": _get_conversation_id(item),
+            "meeting_status": _get_meeting_status(item),
             "to_recipients": to_recipients,
             "cc_recipients": cc_recipients,
             "has_attachments": has_attachments,
@@ -216,6 +219,9 @@ def extract_email_info_minimal(item) -> Dict[str, Any]:
             "subject": "No Subject",
             "sender": "Unknown",
             "received_time": "Unknown",
+            "folder": "Unknown",
+            "conversation_id": "",
+            "meeting_status": "",
             "to_recipients": [],
             "cc_recipients": [],
             "has_attachments": False,
@@ -224,6 +230,58 @@ def extract_email_info_minimal(item) -> Dict[str, Any]:
             "embedded_images_count": 0,
             "attachments_processed": True
         }
+
+def _get_folder_name(item) -> str:
+    """Extract folder name from an Outlook item's parent folder."""
+    try:
+        parent = getattr(item, 'Parent', None)
+        if parent:
+            return getattr(parent, 'Name', 'Unknown')
+    except Exception:
+        pass
+    return "Unknown"
+
+
+def _get_conversation_id(item) -> str:
+    """Extract conversation ID from an Outlook item for thread tracking."""
+    try:
+        conv_id = getattr(item, 'ConversationID', '')
+        if conv_id:
+            return str(conv_id)
+    except Exception:
+        pass
+    return ""
+
+
+def _get_meeting_status(item) -> str:
+    """Detect Outlook-native meeting status (fast, no body access)."""
+    try:
+        status = getattr(item, 'MeetingStatus', 0)
+        if status == 3:
+            return "meeting_request"
+        elif status == 5 or status == 7:
+            return "meeting_canceled"
+        elif status == 1:
+            return "meeting"
+    except Exception:
+        pass
+    return ""
+
+
+def _detect_event_from_body(body_text: str) -> bool:
+    """Scan body text for event indicators (call after body is already loaded)."""
+    if not body_text:
+        return False
+    lower = body_text[:3000].lower()
+    patterns = (
+        'join live event', 'join the event', 'register here',
+        'register now', 'click here to join', 'add to calendar',
+        'join meeting', 'join webinar', 'event details',
+        'session start', 'session will', 'mark your calendar',
+        'you are invited', "you're invited",
+    )
+    return any(p in lower for p in patterns)
+
 
 def extract_email_info(item) -> Dict[str, Any]:
     """Extract basic email information from an Outlook item with optimized COM access."""
@@ -234,14 +292,19 @@ def extract_email_info(item) -> Dict[str, Any]:
         subject = getattr(item, 'Subject', 'No Subject')
         sender = getattr(item, 'SenderName', 'Unknown')
         received_time = getattr(item, 'ReceivedTime', None)
-        
+        folder_name = _get_folder_name(item)
+        conversation_id = _get_conversation_id(item)
+
         email_info = {
             "entry_id": entry_id,
             "subject": subject,
             "sender": sender,
-            "received_time": str(received_time) if received_time else "Unknown"
+            "received_time": str(received_time) if received_time else "Unknown",
+            "folder": folder_name,
+            "conversation_id": conversation_id,
+            "meeting_status": _get_meeting_status(item),
         }
-        
+
         # Cache these attributes for recipient processing
         if entry_id:
             _com_attribute_cache[f"{entry_id}:EntryID"] = entry_id
@@ -256,7 +319,10 @@ def extract_email_info(item) -> Dict[str, Any]:
             "entry_id": getattr(item, 'EntryID', ''),
             "subject": "No Subject",
             "sender": "Unknown",
-            "received_time": "Unknown"
+            "received_time": "Unknown",
+            "folder": "Unknown",
+            "conversation_id": "",
+            "meeting_status": "",
         }
     
     # Extract To recipients - optimized with single-pass COM access

@@ -1,8 +1,19 @@
 ---
 name: outlook
-description: Microsoft Outlook email management - search, list, compose, reply, forward
-triggers: ["outlook", "email", "list emails", "search email"]
-operations: ["list-recent", "search", "compose", "reply", "batch-forward", "contact-lookup"]
+description: Microsoft Outlook email management - search, list, compose, reply, forward, thread tracking
+triggers: [
+  "check email", "check inbox", "any new emails", "what's new",
+  "show recent emails", "show emails", "list emails",
+  "find emails about", "find all emails from", "search for emails",
+  "find thread", "find conversation",
+  "find related",
+  "draft email", "compose", "write email", "new email",
+  "reply", "forward", "send to",
+  "batch forward", "mass forward", "forward to multiple",
+  "get email", "view email", "show email details",
+  "lookup contact", "who is"
+]
+operations: ["find-recent", "find", "compose", "reply", "forward", "batch-forward", "contact-lookup", "find-thread", "find-related", "get-email"]
 ---
 
 # Outlook Skill
@@ -11,22 +22,49 @@ operations: ["list-recent", "search", "compose", "reply", "batch-forward", "cont
 
 ## Commands
 
-### List Recent Emails
+### Find Recent Emails
 ```bash
-py -3 scripts/outlook_skill.py list-recent --days 7
+py -3 scripts/outlook_skill.py find-recent --days 7
 ```
-- Shows: To/CC, attachments (with filenames), body preview
-- `--days`: 1-30 (default: 7)
-- `--folder`: optional (default: Inbox)
+- Default: **Inbox only** (your sent emails are tracked in task files)
+- Shows: To/CC, attachments, body preview, folder indicator (📥/📤)
+- `--days`: 1-365 (default: 7)
+- `--folder`: override folder (rarely needed)
 
-### Search Emails
+### Find Emails
 ```bash
-py -3 scripts/outlook_skill.py search --type sender --query "Name" --days 30
+py -3 scripts/outlook_skill.py find --type subject --query "Name" --days 30
 ```
+- Default folder depends on `--type`:
+  - `sender`, `subject`, `body` → **Inbox** only
+  - `recipient` → **Sent Items** only
 - `--type`: subject, sender, recipient, body
 - `--query`: search text (required)
-- `--days`: 1-30 (default: 30)
-- Shows same details as list-recent
+- `--days`: 1-365 (default: 30)
+- `--folders`: use only when explicitly searching across folders (searches Inbox + Sent Items)
+
+### Find Thread
+```bash
+py -3 scripts/outlook_skill.py find-thread "<email_id>"
+```
+- **Auto-searches Inbox + Sent Items** — thread completeness requires both
+- Finds ALL emails sharing the same ConversationID
+- Subjects can differ (RE:/Fwd: prefixes, topic changes don't matter)
+- Results sorted chronologically (oldest first)
+
+### Find Related Emails
+```bash
+py -3 scripts/outlook_skill.py find-related "<email_id>"
+```
+- **Auto-searches Inbox + Sent Items** — multi-strategy needs full data
+- Strategies: thread (★5) + sender (★3) + keyword (★2)
+- Results sorted by relevance
+- Multi-strategy search for emails related to a given email:
+  - **thread** (★5): Same ConversationID
+  - **sender** (★3): Same sender within time window
+  - **keyword** (★2): Shared subject keywords
+- Results sorted by relevance (confidence score)
+- `--strategies`: comma-separated (default: all three)
 
 ### Contact Lookup (Use Before Search by Email)
 ```bash
@@ -35,18 +73,44 @@ py -3 scripts/outlook_skill.py lookup-contact "user@domain.com"
 - Returns: Display name, company, job title
 - **Why:** Outlook search by email address unreliable; use display name instead
 
-### Reply to Email
+### ReplyAll (default)
 ```bash
-py -3 scripts/outlook_skill.py reply "<email_id>" "<p>HTML body</p>" [--send]
+py -3 scripts/outlook_skill.py replyall "<email_id>" "<p>HTML body</p>"
+py -3 scripts/outlook_skill.py replyall "<email_id>" "<p>HTML body</p>" --cc "extra@ibm.com"
 ```
-- Default: Preview only
-- `--send`: Actually send email
+- Keeps ALL original To + CC recipients. `--to`/`--cc` APPEND to existing.
+- **This is the default reply command.** Use unless you need to narrow recipients.
+- **⚠️ ALWAYS show draft to user first — NEVER send before user approval**
+
+### Reply (specify mode)
+```bash
+py -3 scripts/outlook_skill.py reply "<email_id>" "<p>HTML body</p>"
+py -3 scripts/outlook_skill.py reply "<email_id>" "<p>HTML body</p>" --to "specific@ibm.com"
+```
+- Replies to sender only. `--to`/`--cc` specify EXACT extra recipients (original To/CC NOT included).
+- Use when you want to narrow the recipient list.
 
 ### Compose Email
 ```bash
 py -3 scripts/outlook_skill.py compose --to "email" --subject "text" --body "<p>HTML</p>"
 ```
-- Always sends immediately
+- **⚠️ ALWAYS show draft to user in chat window first — NEVER send before user approval**
+- AI presents the email as readable plain text in chat
+- Only call this command after user explicitly confirms "send" or "approve"
+- Sends immediately when called
+
+### Forward (single)
+```bash
+py -3 scripts/outlook_skill.py forward "<email_id>" --to "user@domain.com"
+py -3 scripts/outlook_skill.py forward "<email_id>" --to "user1@ibm.com,user2@ibm.com" --cc "manager@ibm.com" --body "<p>FYI</p>"
+```
+- Forwards an email to specified recipients
+- `--to` (required): Comma-separated list of To recipients
+- `--cc` (optional): Comma-separated list of CC recipients
+- `--body` (optional): Custom HTML message to prepend
+- Subject auto-prefixed with `FW:`
+- Preserves original email formatting
+- **⚠️ ALWAYS show draft to user first — NEVER send before user approval**
 
 ### Batch Forward
 ```bash
@@ -58,6 +122,13 @@ py -3 scripts/outlook_skill.py batch-forward "<email_id>" "recipients.csv" --mes
 - Preserves original email formatting
 - Automatically splits large recipient lists into batches
 - **Batch size:** Configured in [`backend/config.py`](backend/config.py) (default: 500)
+
+### Get Full Email Details
+```bash
+py -3 scripts/outlook_skill.py get-email "<email_id>"
+```
+- Returns complete email: full body, all attachments, metadata
+- Use after search/thread/related to read the actual content
 
 ## Configuration
 
@@ -97,15 +168,30 @@ class BatchConfig:
 
 **Common HTML entities:** `$` = `&#36;` | `&` = `&amp;` | `<` = `&lt;` | `>` = `&gt;`
 
-## Search Workflow for Email Addresses
+## Find Workflow for Email Addresses
 
 1. Lookup display name: `lookup-contact "user@domain.com"`
-2. Search by display name: `search --type sender --query "Display Name"`
+2. Find by display name: `find --type sender --query "Display Name"`
 
 **Why:** Outlook MAPI doesn't reliably search by email address
+
+## Recommended AI Usage Flow
+
+### Finding All Emails About a Topic
+```bash
+# Step 1: Search
+py -3 scripts/outlook_skill.py find --type subject --query "voucher approval" --folders "Inbox,Sent Items" --days 90
+
+# Step 2: From any result, find the full thread
+py -3 scripts/outlook_skill.py find-thread "<entry_id>"
+
+# Step 3: For even more context, find related across threads
+py -3 scripts/outlook_skill.py find-related "<entry_id>"
+```
 
 ## Requirements
 
 - Microsoft Outlook 2016+ (running)
 - Windows 10+
 - Python 3.8+ with pywin32
+- SQLite 3.35+ (included with Python 3.8+)

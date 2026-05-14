@@ -23,11 +23,14 @@ from backend.email_search import (
     search_email_by_from,
     search_email_by_to,
     search_email_by_body,
-    list_folders
+    list_folders,
+    find_thread_by_email_id,
+    find_related_emails,
+    unified_search,
 )
 from backend.email_composition import compose_email
-# Caching removed - working directly with email results
 from backend.outlook_session.contact_operations import get_contact_by_email, get_display_name_from_email
+from backend.config import search_config
 
 
 def cmd_list_folders(args):
@@ -45,298 +48,184 @@ def cmd_list_folders(args):
 
 def cmd_list_recent(args):
     """List recent emails with their IDs"""
-    
-    def extract_display_name(recipient_string):
-        """Extract display name from Exchange format or email string"""
-        if not recipient_string:
-            return ""
-        
-        # Check if it's Exchange format: Name </o=ExchangeLabs/...>
-        if '</o=' in recipient_string.lower() or '/cn=' in recipient_string.lower():
-            # Extract the name before the < symbol
-            if '<' in recipient_string:
-                return recipient_string.split('<')[0].strip()
-        
-        # Check if it's standard email format: Name <email@domain.com>
-        if '<' in recipient_string and '@' in recipient_string:
-            return recipient_string.split('<')[0].strip()
-        
-        # Otherwise return as is
-        return recipient_string.strip()
-    
     try:
         emails, message = list_recent_emails(args.folder, args.days)
-        
-        # Count emails
         email_count = len(emails)
         print(f"\n✅ Found {email_count} recent emails\n")
-        
-        # Display emails with complete details
+
         if emails:
-            for idx, email_data in enumerate(emails, 1):
-                email_id = email_data.get('id') or email_data.get('entry_id', '')
-                print(f"{'='*80}")
-                print(f"Email #{idx}")
-                print(f"{'='*80}")
-                
-                # Basic info
-                subject = email_data.get('subject', 'No Subject')
-                sender = email_data.get('sender', 'Unknown')
-                received = email_data.get('received_time', 'Unknown')
-                
-                print(f"ID: {email_id}")
-                print(f"Subject: {subject}")
-                print(f"From: {sender}")
-                
-                # To recipients - extract display names only
-                to_recipients = email_data.get('to_recipients', [])
-                if to_recipients:
-                    to_list = []
-                    for recipient in to_recipients:
-                        name = recipient.get('name', '')
-                        address = recipient.get('address', '')
-                        
-                        # Extract display name from Exchange format
-                        display_name = extract_display_name(name) if name else extract_display_name(address)
-                        
-                        if display_name:
-                            to_list.append(display_name)
-                    
-                    if to_list:
-                        print(f"To: {'; '.join(to_list)}")
-                
-                # CC recipients - extract display names only
-                cc_recipients = email_data.get('cc_recipients', [])
-                if cc_recipients:
-                    cc_list = []
-                    for recipient in cc_recipients:
-                        name = recipient.get('name', '')
-                        address = recipient.get('address', '')
-                        
-                        # Extract display name from Exchange format
-                        display_name = extract_display_name(name) if name else extract_display_name(address)
-                        
-                        if display_name:
-                            cc_list.append(display_name)
-                    
-                    if cc_list:
-                        print(f"CC: {'; '.join(cc_list)}")
-                
-                print(f"Received: {received}")
-                
-                # Attachments
-                has_attachments = email_data.get('has_attachments', False)
-                attachments = email_data.get('attachments', [])
-                attachments_count = email_data.get('attachments_count', 0)
-                embedded_images_count = email_data.get('embedded_images_count', 0)
-                
-                if has_attachments and attachments:
-                    print(f"\n📎 Attachments ({attachments_count}):")
-                    for attachment in attachments:
-                        # Handle both dict and object attachment formats
-                        if isinstance(attachment, dict):
-                            name = attachment.get('name') or attachment.get('filename') or 'Unknown'
-                            size = attachment.get('size', 0)
-                        else:
-                            name = getattr(attachment, 'name', None) or getattr(attachment, 'filename', 'Unknown')
-                            size = getattr(attachment, 'size', 0)
-                        
-                        size_kb = size / 1024 if size > 0 else 0
-                        print(f"  - {name} ({size_kb:.1f} KB)")
-                
-                if embedded_images_count > 0:
-                    print(f"🖼️  Embedded images: {embedded_images_count}")
-                
-                # Get body preview - extract the latest message content only
-                try:
-                    with OutlookSessionManager() as session:
-                        email_item = session.outlook.GetNamespace("MAPI").GetItemFromID(email_id)
-                        body_text = email_item.Body if hasattr(email_item, 'Body') else ""
-                        if body_text:
-                            # Clean up the text: remove excessive whitespace and extract meaningful content
-                            lines = body_text.split('\n')
-                            cleaned_lines = []
-                            
-                            for line in lines:
-                                stripped = line.strip()
-                                # Stop at common email thread separators
-                                if any(sep in stripped for sep in ['From:', 'Sent:', '________________________________',
-                                                                   '________________________________________________________________________________',
-                                                                   'Original Message', '-----Original Message-----']):
-                                    break
-                                # Skip empty lines at the start
-                                if not cleaned_lines and not stripped:
-                                    continue
-                                # Add non-empty lines or single empty line for paragraph breaks
-                                if stripped or (cleaned_lines and cleaned_lines[-1]):
-                                    cleaned_lines.append(stripped if stripped else '')
-                            
-                            # Join lines and limit to reasonable length
-                            preview = '\n'.join(cleaned_lines).strip()
-                            
-                            # Limit to 800 characters for readability
-                            if len(preview) > 800:
-                                preview = preview[:800] + "..."
-                            
-                            if preview:
-                                print(f"\nPreview:\n{preview}")
-                except Exception as e:
-                    # If preview fails, just skip it
-                    pass
-                
-                print()
-        
+            _display_email_list(emails, show_folder=True)
+
         return 0
     except Exception as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         return 1
 
 
-def cmd_search(args):
-    """Search emails and display with IDs"""
-    
+def _folder_emoji(folder_name: str) -> str:
+    """Return emoji indicator for folder type."""
+    name_lower = folder_name.lower()
+    if "sent" in name_lower:
+        return "\U0001F4E4"  # 📤
+    elif "inbox" in name_lower:
+        return "\U0001F4E5"  # 📥
+    elif "draft" in name_lower:
+        return "\U0001F4DD"  # 📝
+    elif "deleted" in name_lower or "trash" in name_lower:
+        return "\U0001F5D1"  # 🗑
+    return "\U0001F4C1"  # 📁
+
+
+def _display_email_list(emails, show_folder=True):
+    """Display formatted email list with folder markers."""
     def extract_display_name(recipient_string):
-        """Extract display name from Exchange format or email string"""
         if not recipient_string:
             return ""
-        
-        # Check if it's Exchange format: Name </o=ExchangeLabs/...>
         if '</o=' in recipient_string.lower() or '/cn=' in recipient_string.lower():
-            # Extract the name before the < symbol
             if '<' in recipient_string:
                 return recipient_string.split('<')[0].strip()
-        
-        # Check if it's standard email format: Name <email@domain.com>
         if '<' in recipient_string and '@' in recipient_string:
             return recipient_string.split('<')[0].strip()
-        
-        # Otherwise return as is
         return recipient_string.strip()
-    
+
+    for idx, email_data in enumerate(emails, 1):
+        email_id = email_data.get('id') or email_data.get('entry_id', '')
+        print(f"{'='*80}")
+        folder_name = email_data.get('folder', '')
+        folder_indicator = f" {_folder_emoji(folder_name)} {folder_name}" if show_folder and folder_name else ""
+
+        meeting = email_data.get('meeting_status', '')
+        meeting_icon = ""
+        if meeting == "meeting_request":
+            meeting_icon = " 📅 Meeting Invite"
+        elif meeting == "meeting_canceled":
+            meeting_icon = " ❌ Canceled"
+        elif meeting == "meeting":
+            meeting_icon = " 📅 Meeting"
+        elif not meeting:
+            # Fast check: subject + sender heuristics (no body access)
+            subj_lower = (email_data.get('subject') or '').lower()
+            sender_lower = (email_data.get('sender') or '').lower()
+            event_sender_kw = ('events', 'calendar', 'webinar', 'noreply')
+            event_subj_kw = ('webinar', 'join us', 'register now', 'you are invited',
+                             "you're invited", 'invitation', 'save the date',
+                             'live event', 'virtual event')
+            if any(kw in sender_lower for kw in event_sender_kw) or \
+               any(kw in subj_lower for kw in event_subj_kw):
+                meeting_icon = " 📅 Event"
+
+        print(f"Email #{idx}{folder_indicator}{meeting_icon}")
+        print(f"{'='*80}")
+
+        subject = email_data.get('subject', 'No Subject')
+        sender = email_data.get('sender', 'Unknown')
+        received = email_data.get('received_time', 'Unknown')
+
+        print(f"ID: {email_id}")
+        print(f"Subject: {subject}")
+        print(f"From: {sender}")
+
+        to_recipients = email_data.get('to_recipients', [])
+        if to_recipients:
+            to_list = []
+            for recipient in to_recipients:
+                name = recipient.get('name', '')
+                address = recipient.get('address', '')
+                display_name = extract_display_name(name) if name else extract_display_name(address)
+                if display_name:
+                    to_list.append(display_name)
+            if to_list:
+                print(f"To: {'; '.join(to_list)}")
+
+        cc_recipients = email_data.get('cc_recipients', [])
+        if cc_recipients:
+            cc_list = []
+            for recipient in cc_recipients:
+                name = recipient.get('name', '')
+                address = recipient.get('address', '')
+                display_name = extract_display_name(name) if name else extract_display_name(address)
+                if display_name:
+                    cc_list.append(display_name)
+            if cc_list:
+                print(f"CC: {'; '.join(cc_list)}")
+
+        print(f"Received: {received}")
+
+        # Show confidence/strategy for related search
+        confidence = email_data.get('_confidence')
+        strategy = email_data.get('_strategy')
+        if confidence is not None and strategy:
+            stars = "★" * int(confidence * 5) + "☆" * (5 - int(confidence * 5))
+            print(f"Relevance: {stars} ({strategy})")
+
+        has_attachments = email_data.get('has_attachments', False)
+        attachments = email_data.get('attachments', [])
+        attachments_count = email_data.get('attachments_count', 0)
+        embedded_images_count = email_data.get('embedded_images_count', 0)
+
+        if has_attachments and attachments:
+            print(f"\n📎 Attachments ({attachments_count}):")
+            for attachment in attachments:
+                name = attachment.get('name', 'Unknown')
+                size = attachment.get('size', 0)
+                size_kb = size / 1024 if size > 0 else 0
+                print(f"  - {name} ({size_kb:.1f} KB)")
+
+        if embedded_images_count > 0:
+            print(f"\U0001F5BC  Embedded images: {embedded_images_count}")
+
+        try:
+            with OutlookSessionManager() as session:
+                email_item = session.outlook.GetNamespace("MAPI").GetItemFromID(email_id)
+                body_text = email_item.Body if hasattr(email_item, 'Body') else ""
+                if body_text:
+                    lines = body_text.split('\n')
+                    cleaned_lines = []
+                    for line in lines:
+                        stripped = line.strip()
+                        if any(sep in stripped for sep in [
+                            'From:', 'Sent:', '________________________________',
+                            '________________________________________________________________________________',
+                            'Original Message', '-----Original Message-----'
+                        ]):
+                            break
+                        if not cleaned_lines and not stripped:
+                            continue
+                        if stripped or (cleaned_lines and cleaned_lines[-1]):
+                            cleaned_lines.append(stripped if stripped else '')
+                    preview = '\n'.join(cleaned_lines).strip()
+                    if len(preview) > 800:
+                        preview = preview[:800] + "..."
+                    if preview:
+                        print(f"\nPreview:\n{preview}")
+        except Exception:
+            pass
+
+        print()
+
+
+def cmd_search(args):
+    """Search emails and display with IDs - supports multi-folder."""
     try:
-        if args.type == 'subject':
-            emails, note = search_email_by_subject(args.query, args.days, args.folder, args.match_all)
-        elif args.type == 'sender':
-            emails, note = search_email_by_from(args.query, args.days, args.folder, args.match_all)
-        elif args.type == 'recipient':
-            emails, note = search_email_by_to(args.query, args.days, args.folder, args.match_all)
-        elif args.type == 'body':
-            emails, note = search_email_by_body(args.query, args.days, args.folder, args.match_all)
+        # Resolve folders for multi-folder search
+        if args.folders:
+            folder_names = [f.strip() for f in args.folders.split(',')]
         else:
-            print(f"Unknown search type: {args.type}", file=sys.stderr)
-            return 1
-        
-        print(f"\n✅ Found {len(emails)} matching emails\n")
-        
-        # Display emails with complete details
+            folder_names = None
+
+        emails, note = unified_search(
+            search_term=args.query,
+            days=args.days,
+            folder_name=args.folder,
+            folder_names=folder_names,
+            match_all=args.match_all,
+            search_type=args.type,
+        )
+        print(f"\n✅ {note}\n")
+
         if emails:
-            for idx, email_data in enumerate(emails, 1):
-                email_id = email_data.get('id') or email_data.get('entry_id', '')
-                print(f"{'='*80}")
-                print(f"Email #{idx}")
-                print(f"{'='*80}")
-                
-                # Basic info
-                subject = email_data.get('subject', 'No Subject')
-                sender = email_data.get('sender', 'Unknown')
-                received = email_data.get('received_time', 'Unknown')
-                
-                print(f"ID: {email_id}")
-                print(f"Subject: {subject}")
-                print(f"From: {sender}")
-                
-                # To recipients - extract display names only
-                to_recipients = email_data.get('to_recipients', [])
-                if to_recipients:
-                    to_list = []
-                    for recipient in to_recipients:
-                        name = recipient.get('name', '')
-                        address = recipient.get('address', '')
-                        
-                        # Extract display name from Exchange format
-                        display_name = extract_display_name(name) if name else extract_display_name(address)
-                        
-                        if display_name:
-                            to_list.append(display_name)
-                    
-                    if to_list:
-                        print(f"To: {'; '.join(to_list)}")
-                
-                # CC recipients - extract display names only
-                cc_recipients = email_data.get('cc_recipients', [])
-                if cc_recipients:
-                    cc_list = []
-                    for recipient in cc_recipients:
-                        name = recipient.get('name', '')
-                        address = recipient.get('address', '')
-                        
-                        # Extract display name from Exchange format
-                        display_name = extract_display_name(name) if name else extract_display_name(address)
-                        
-                        if display_name:
-                            cc_list.append(display_name)
-                    
-                    if cc_list:
-                        print(f"CC: {'; '.join(cc_list)}")
-                
-                print(f"Received: {received}")
-                
-                # Attachments
-                has_attachments = email_data.get('has_attachments', False)
-                attachments = email_data.get('attachments', [])
-                attachments_count = email_data.get('attachments_count', 0)
-                embedded_images_count = email_data.get('embedded_images_count', 0)
-                
-                if has_attachments and attachments:
-                    print(f"\n📎 Attachments ({attachments_count}):")
-                    for attachment in attachments:
-                        name = attachment.get('name', 'Unknown')
-                        size = attachment.get('size', 0)
-                        size_kb = size / 1024 if size > 0 else 0
-                        print(f"  - {name} ({size_kb:.1f} KB)")
-                
-                if embedded_images_count > 0:
-                    print(f"🖼️  Embedded images: {embedded_images_count}")
-                
-                # Get body preview - extract the latest message content only
-                try:
-                    with OutlookSessionManager() as session:
-                        email_item = session.outlook.GetNamespace("MAPI").GetItemFromID(email_id)
-                        body_text = email_item.Body if hasattr(email_item, 'Body') else ""
-                        if body_text:
-                            # Clean up the text: remove excessive whitespace and extract meaningful content
-                            lines = body_text.split('\n')
-                            cleaned_lines = []
-                            
-                            for line in lines:
-                                stripped = line.strip()
-                                # Stop at common email thread separators
-                                if any(sep in stripped for sep in ['From:', 'Sent:', '________________________________',
-                                                                   '________________________________________________________________________________',
-                                                                   'Original Message', '-----Original Message-----']):
-                                    break
-                                # Skip empty lines at the start
-                                if not cleaned_lines and not stripped:
-                                    continue
-                                # Add non-empty lines or single empty line for paragraph breaks
-                                if stripped or (cleaned_lines and cleaned_lines[-1]):
-                                    cleaned_lines.append(stripped if stripped else '')
-                            
-                            # Join lines and limit to reasonable length
-                            preview = '\n'.join(cleaned_lines).strip()
-                            
-                            # Limit to 800 characters for readability
-                            if len(preview) > 800:
-                                preview = preview[:800] + "..."
-                            
-                            if preview:
-                                print(f"\nPreview:\n{preview}")
-                except Exception as e:
-                    # If preview fails, just skip it
-                    pass
-                
-                print()
-        
+            _display_email_list(emails, show_folder=(folder_names is not None and len(folder_names) > 1))
+
         return 0
     except Exception as e:
         print(f"Error: {str(e)}", file=sys.stderr)
@@ -347,8 +236,8 @@ def cmd_get_email(args):
     """Get full email details by ID"""
     try:
         with OutlookSessionManager() as session:
-            email_item = session.outlook.GetNamespace("MAPI").GetItemFromID(args.email_id)
-            
+            email_item = _get_email_item(session, args.email_id)
+
             print("\nFull email details:")
             print(f"ID: {args.email_id}")
             print(f"Subject: {email_item.Subject}")
@@ -372,173 +261,174 @@ def cmd_get_email(args):
         return 1
 
 
-def cmd_reply(args):
-    """Reply to an email by ID (HTML format) - Display or Send"""
+def _get_email_item(session, email_id):
+    """Get email by ID, retrying across all Outlook stores when needed."""
+    namespace = session.namespace or session.outlook.GetNamespace("MAPI")
+
+    try:
+        return namespace.GetItemFromID(email_id)
+    except Exception as first_error:
+        last_error = first_error
+
+        try:
+            stores = getattr(namespace, "Folders", None)
+            if stores:
+                for i in range(1, stores.Count + 1):
+                    try:
+                        store_root = stores.Item(i)
+                        store_id = getattr(store_root, "StoreID", "")
+                        if not store_id:
+                            continue
+                        return namespace.GetItemFromID(email_id, store_id)
+                    except Exception as store_error:
+                        last_error = store_error
+                        continue
+        except Exception:
+            pass
+
+        if "moved or deleted" in str(last_error).lower():
+            print("Error: Outlook could not resolve the email by its current item handle.")
+            print("This can happen after recall, move, or mailbox-store changes.")
+            print("Please search for the email again to get a fresh current email ID.")
+
+        raise last_error
+
+
+def _format_forward_message_html(message_text: str) -> str:
+    """Convert plain text or HTML-ish input into the simple prepended block used for forwards."""
+    if not message_text:
+        return ""
+    return '<p>' + message_text.replace('\n\n', '</p><p>').replace('\n', '<br>') + '</p>'
+
+
+def _remove_self_from_recipients(reply, current_user_email):
+    """Remove current user from reply recipients."""
+    to_remove = []
+    for i in range(1, reply.Recipients.Count + 1):
+        recipient = reply.Recipients.Item(i)
+        recipient_email = recipient.Address
+        try:
+            if recipient.AddressEntry.Type == "EX":
+                recipient_email = recipient.AddressEntry.GetExchangeUser().PrimarySmtpAddress
+        except:
+            pass
+        if recipient_email.lower() == current_user_email.lower():
+            to_remove.append(i)
+    for i in reversed(to_remove):
+        reply.Recipients.Remove(i)
+
+
+def _add_recipients(reply, to_str, cc_str):
+    """Append --to and --cc to existing recipients."""
+    if to_str:
+        for r in to_str.split(","):
+            r = r.strip()
+            if r:
+                reply.Recipients.Add(r)
+    if cc_str:
+        for r in cc_str.split(","):
+            r = r.strip()
+            if r:
+                cc_recip = reply.Recipients.Add(r)
+                cc_recip.Type = 2
+
+
+def cmd_replyall(args):
+    """ReplyAll: keeps original To+CC. --to/--cc APPEND to existing.
+
+    Default reply behavior. Use for normal replies where you want
+    everyone kept in the loop.
+    """
     try:
         with OutlookSessionManager() as session:
-            email_subject = None
-            
-            # Try to get email metadata
-            email_subject = 'Unknown'
-            
-            # Try namespace.GetItemFromID (reliable method)
-            try:
-                email_item = session.outlook.GetNamespace("MAPI").GetItemFromID(args.email_id)
-            except Exception as e:
-                error_msg = str(e)
-                if "moved or deleted" in error_msg.lower():
-                    print("Error: The email has been moved or deleted from Outlook.")
-                    print("Please search for the email again to get a current email ID.")
-                    return 1
-                else:
-                    raise
-            
-            # Get current user's email address
+            email_item = _get_email_item(session, args.email_id)
             current_user = session.outlook.Session.CurrentUser
             current_user_email = (
                 current_user.AddressEntry.GetExchangeUser().PrimarySmtpAddress
-                if current_user.AddressEntry.GetExchangeUser()
-                else ""
+                if current_user.AddressEntry.GetExchangeUser() else ""
             )
-            
-            # Check if this is from Sent Items
+
             parent_folder = email_item.Parent
             is_sent_items = "Sent Items" in parent_folder.Name or "已发送邮件" in parent_folder.Name
-            
-            if args.send:
-                # Check if custom recipients are provided
-                if args.to or args.cc:
-                    # Use custom recipients
-                    reply = session.outlook.CreateItem(0)  # 0 = olMailItem
-                    
-                    # Add custom To recipients
-                    if args.to:
-                        for recipient in args.to.split(","):
-                            recipient = recipient.strip()
-                            if recipient:
-                                reply.Recipients.Add(recipient)
-                    
-                    # Add custom CC recipients
-                    if args.cc:
-                        for recipient in args.cc.split(","):
-                            recipient = recipient.strip()
-                            if recipient:
-                                cc_recip = reply.Recipients.Add(recipient)
-                                cc_recip.Type = 2  # 2 = olCC
-                    
-                    # Set subject
-                    reply.Subject = f"RE: {email_item.Subject}" if not email_item.Subject.startswith("RE:") else email_item.Subject
-                    
-                    # Set HTML body with original email
-                    separator = '<hr style="border: 1px solid #ccc; margin: 20px 0;">'
-                    original_body = email_item.HTMLBody if email_item.HTMLBody else f"<p>{email_item.Body}</p>"
-                    reply.HTMLBody = args.body + separator + original_body
-                elif is_sent_items:
-                    # For Sent Items, create a new email with original recipients
-                    reply = session.outlook.CreateItem(0)  # 0 = olMailItem
-                    
-                    # Add original To recipients
-                    if email_item.To:
-                        for recipient in email_item.To.split(";"):
-                            recipient = recipient.strip()
-                            if recipient and recipient.lower() != current_user_email.lower():
-                                reply.Recipients.Add(recipient)
-                    
-                    # Add original CC recipients
-                    if email_item.CC:
-                        for recipient in email_item.CC.split(";"):
-                            recipient = recipient.strip()
-                            if recipient and recipient.lower() != current_user_email.lower():
-                                cc_recip = reply.Recipients.Add(recipient)
-                                cc_recip.Type = 2  # 2 = olCC
-                    
-                    # Set subject
-                    reply.Subject = f"RE: {email_item.Subject}" if not email_item.Subject.startswith("RE:") else email_item.Subject
-                    
-                    # Set HTML body with original email
-                    separator = '<hr style="border: 1px solid #ccc; margin: 20px 0;">'
-                    original_body = email_item.HTMLBody if email_item.HTMLBody else f"<p>{email_item.Body}</p>"
-                    reply.HTMLBody = args.body + separator + original_body
-                else:
-                    # For Inbox/other folders, use ReplyAll
-                    reply = email_item.ReplyAll()
-                    
-                    # Remove current user from recipients
-                    recipients_to_remove = []
-                    for i in range(1, reply.Recipients.Count + 1):
-                        recipient = reply.Recipients.Item(i)
-                        recipient_email = recipient.Address
-                        try:
-                            if recipient.AddressEntry.Type == "EX":
-                                recipient_email = recipient.AddressEntry.GetExchangeUser().PrimarySmtpAddress
-                        except:
-                            pass
-                        
-                        if recipient_email.lower() == current_user_email.lower():
-                            recipients_to_remove.append(i)
-                    
-                    for i in reversed(recipients_to_remove):
-                        reply.Recipients.Remove(i)
-                    
-                    # Set HTML body (Outlook adds its own separator automatically)
-                    reply.HTMLBody = args.body + reply.HTMLBody
-                
-                # Check if there are any recipients left
-                if reply.Recipients.Count == 0:
-                    print("Error: No recipients found.")
-                    print(f"Original To: {email_item.To}")
-                    print(f"Original CC: {email_item.CC}")
-                    print("Please verify the email has valid recipients.")
-                    return 1
-                
-                # Save recipient count before Send (reply object becomes stale after Send)
-                recipient_count = reply.Recipients.Count
-                
-                # Send
-                reply.Send()
-                print(f"Email sent successfully to {recipient_count} recipient(s)")
+
+            if is_sent_items:
+                # Sent Items: create new email with original recipients + extras
+                reply = session.outlook.CreateItem(0)
+                if email_item.To:
+                    for r in email_item.To.split(";"):
+                        r = r.strip()
+                        if r and r.lower() != current_user_email.lower():
+                            reply.Recipients.Add(r)
+                if email_item.CC:
+                    for r in email_item.CC.split(";"):
+                        r = r.strip()
+                        if r and r.lower() != current_user_email.lower():
+                            cc_recip = reply.Recipients.Add(r)
+                            cc_recip.Type = 2
+                _add_recipients(reply, args.to, args.cc)
+                separator = '<hr style="border: 1px solid #ccc; margin: 20px 0;">'
+                original_body = email_item.HTMLBody if email_item.HTMLBody else f"<p>{email_item.Body}</p>"
+                reply.HTMLBody = args.body + separator + original_body
             else:
-                # Just display the email content (no saving)
-                print("\n" + "="*60)
-                print("EMAIL PREVIEW (Not saved, not sent)")
-                print("="*60)
-                
-                # Check if custom recipients provided
-                if args.to or args.cc:
-                    print(f"To: {args.to if args.to else '(none)'}")
-                    if args.cc:
-                        print(f"CC: {args.cc}")
-                    print(f"\nNote: Using custom recipients")
-                elif is_sent_items:
-                    # Show original recipients from Sent Items
-                    print(f"To: {email_item.To}")
-                    if email_item.CC:
-                        print(f"CC: {email_item.CC}")
-                    print(f"\nNote: Replying to original recipients from Sent Items (excluding {current_user_email})")
-                else:
-                    # Show ReplyAll recipients
-                    print(f"To: {email_item.SenderName} <{email_item.SenderEmailAddress}>")
-                    if email_item.CC:
-                        print(f"CC: {email_item.CC}")
-                    print(f"\nNote: Will reply to all original recipients (excluding {current_user_email})")
-                
-                print(f"Subject: RE: {email_item.Subject}")
-                print("\n" + "-"*60)
-                print("HTML Body:")
-                print("-"*60)
-                print(args.body)
-                print("\n" + "="*60)
-                print("Use --send flag to send this email")
-                print("="*60)
-        
-        return 0
+                # Inbox: ReplyAll + append
+                reply = email_item.ReplyAll()
+                _remove_self_from_recipients(reply, current_user_email)
+                _add_recipients(reply, args.to, args.cc)
+                reply.HTMLBody = args.body + reply.HTMLBody
+
+            reply.Subject = f"RE: {email_item.Subject}" if not email_item.Subject.startswith("RE:") else email_item.Subject
+
+            if reply.Recipients.Count == 0:
+                print("Error: No recipients found.")
+                return 1
+
+            count = reply.Recipients.Count
+            reply.Send()
+            print(f"ReplyAll sent to {count} recipient(s)")
+            return 0
     except Exception as e:
-        error_msg = str(e)
-        if "moved or deleted" in error_msg.lower():
-            print("Error: The email has been moved or deleted from Outlook.")
-            print("Please search for the email again to get a current email ID.")
-        else:
-            print(f"Error: {error_msg}", file=sys.stderr)
+        print(f"Error: {str(e)}", file=sys.stderr)
+        return 1
+
+
+def cmd_reply(args):
+    """Reply (specify mode): --to/--cc specify EXACT extra recipients.
+
+    Uses Reply() — only goes to sender + specified extras.
+    For when you want to narrow the recipient list.
+    """
+    try:
+        with OutlookSessionManager() as session:
+            email_item = _get_email_item(session, args.email_id)
+
+            parent_folder = email_item.Parent
+            is_sent_items = "Sent Items" in parent_folder.Name or "已发送邮件" in parent_folder.Name
+
+            if is_sent_items:
+                # Sent Items: new email with only specified recipients
+                reply = session.outlook.CreateItem(0)
+                _add_recipients(reply, args.to, args.cc)
+                separator = '<hr style="border: 1px solid #ccc; margin: 20px 0;">'
+                original_body = email_item.HTMLBody if email_item.HTMLBody else f"<p>{email_item.Body}</p>"
+                reply.HTMLBody = args.body + separator + original_body
+            else:
+                # Inbox: Reply (sender only) + specified extras
+                reply = email_item.Reply()
+                _add_recipients(reply, args.to, args.cc)
+                reply.HTMLBody = args.body + reply.HTMLBody
+
+            reply.Subject = f"RE: {email_item.Subject}" if not email_item.Subject.startswith("RE:") else email_item.Subject
+
+            if reply.Recipients.Count == 0:
+                print("Error: No recipients specified. Use --to or --cc.")
+                return 1
+
+            count = reply.Recipients.Count
+            reply.Send()
+            print(f"Reply sent to {count} recipient(s)")
+            return 0
+    except Exception as e:
+        print(f"Error: {str(e)}", file=sys.stderr)
         return 1
 
 
@@ -599,8 +489,9 @@ def cmd_batch_forward(args):
         batch_size = batch_config.OUTLOOK_BCC_LIMIT
         
         with OutlookSessionManager() as session:
-            email_item = session.outlook.GetNamespace("MAPI").GetItemFromID(args.email_id)
-            
+            email_item = _get_email_item(session, args.email_id)
+            email_subject = str(getattr(email_item, "Subject", "No Subject"))
+
             # Read CSV file (handle BOM if present)
             import csv
             recipients = []
@@ -625,10 +516,7 @@ def cmd_batch_forward(args):
                 
                 # Add custom message if provided (insert into body tag like reply does)
                 if args.message:
-                    # Simple approach: just prepend message directly like reply function does
-                    # Outlook will handle the spacing automatically
-                    message_html = '<p>' + args.message.replace('\n\n', '</p><p>').replace('\n', '<br>') + '</p>'
-                    forward.HTMLBody = message_html + forward.HTMLBody
+                    forward.HTMLBody = _format_forward_message_html(args.message) + forward.HTMLBody
                 
                 # Add recipients as BCC (to protect privacy)
                 for recipient in batch:
@@ -644,9 +532,61 @@ def cmd_batch_forward(args):
                 print(f"Sent batch {i//batch_size + 1}: {len(batch)} recipients")
             
             print(f"\nTotal recipients: {total_sent}")
-            print(f"Successfully forwarded email: {email_item.Subject}")
+            print(f"Successfully forwarded email: {email_subject}")
         
         return 0
+    except Exception as e:
+        print(f"Error: {str(e)}", file=sys.stderr)
+        return 1
+
+
+def cmd_forward(args):
+    """Forward an email to specified recipients with optional CC and custom message."""
+    try:
+        with OutlookSessionManager() as session:
+            email_item = _get_email_item(session, args.email_id)
+
+            forward = email_item.Forward()
+
+            # Set subject with FW: prefix
+            original_subject = str(getattr(email_item, "Subject", "No Subject"))
+            forward.Subject = f"FW: {original_subject}" if not original_subject.startswith("FW:") else original_subject
+
+            # Add To recipients
+            if args.to:
+                for r in args.to.split(","):
+                    r = r.strip()
+                    if r:
+                        forward.Recipients.Add(r)
+
+            # Add CC recipients
+            if args.cc:
+                for r in args.cc.split(","):
+                    r = r.strip()
+                    if r:
+                        cc_recip = forward.Recipients.Add(r)
+                        cc_recip.Type = 2  # 2 = olCC
+
+            # Prepend custom message if provided
+            if args.body:
+                forward.HTMLBody = _format_forward_message_html(args.body) + forward.HTMLBody
+
+            if forward.Recipients.Count == 0:
+                print("Error: No recipients specified. Use --to.")
+                return 1
+
+            resolved = forward.Recipients.ResolveAll()
+            if resolved is False:
+                print("Error: One or more recipients could not be resolved.")
+                return 1
+
+            recipient_count = forward.Recipients.Count
+            final_subject = str(getattr(forward, "Subject", original_subject))
+
+            forward.Send()
+            print(f"Forward sent to {recipient_count} recipient(s)")
+            print(f"Subject: {final_subject}")
+            return 0
     except Exception as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         return 1
@@ -742,6 +682,50 @@ def cmd_lookup_contact(args):
         return 1
 
 
+def cmd_find_thread(args):
+    """Find all emails in the same conversation thread."""
+    try:
+        emails, message = find_thread_by_email_id(
+            args.email_id,
+            folder_names=(
+                [f.strip() for f in args.folders.split(',')]
+                if args.folders else None
+            ),
+        )
+        print(f"\n🧵 {message}\n")
+
+        if emails:
+            _display_email_list(emails, show_folder=True)
+
+        return 0
+    except Exception as e:
+        print(f"Error: {str(e)}", file=sys.stderr)
+        return 1
+
+
+def cmd_find_related(args):
+    """Find emails related to a given email using multiple strategies."""
+    try:
+        strategies = None
+        if args.strategies:
+            strategies = [s.strip() for s in args.strategies.split(',')]
+
+        emails, message = find_related_emails(
+            args.email_id,
+            days=args.days,
+            strategies=strategies,
+        )
+        print(f"\n🔗 {message}\n")
+
+        if emails:
+            _display_email_list(emails, show_folder=True)
+
+        return 0
+    except Exception as e:
+        print(f"Error: {str(e)}", file=sys.stderr)
+        return 1
+
+
 def main():
     parser = argparse.ArgumentParser(description='Outlook Skill for BrainClaw - Email Management CLI')
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
@@ -752,17 +736,18 @@ def main():
     parser_list_folders.set_defaults(func=cmd_list_folders)
     
     # List recent emails command
-    parser_list_recent = subparsers.add_parser('list-recent', help='List recent emails with IDs')
+    parser_list_recent = subparsers.add_parser('find-recent', help='Find recent emails with IDs')
     parser_list_recent.add_argument('--days', type=int, default=7, help='Days back to search (1-30)')
     parser_list_recent.add_argument('--folder', type=str, default=None, help='Folder name (default: Inbox)')
     parser_list_recent.set_defaults(func=cmd_list_recent)
     
     # Search emails command
-    parser_search = subparsers.add_parser('search', help='Search emails and display with IDs')
+    parser_search = subparsers.add_parser('find', help='Find emails by subject, sender, recipient, or body')
     parser_search.add_argument('--type', required=True, choices=['subject', 'sender', 'recipient', 'body'], help='Search type')
     parser_search.add_argument('--query', required=True, help='Search query')
-    parser_search.add_argument('--days', type=int, default=30, help='Days back to search')
+    parser_search.add_argument('--days', type=int, default=30, help=f'Days back to search (max {search_config.MAX_SEARCH_DAYS})')
     parser_search.add_argument('--folder', type=str, default=None, help='Folder name (default: Inbox)')
+    parser_search.add_argument('--folders', type=str, default=None, help='Comma-separated folder names for cross-folder search')
     parser_search.add_argument('--match-all', action='store_true', default=True, help='Match all terms (AND logic)')
     parser_search.set_defaults(func=cmd_search)
     
@@ -771,13 +756,20 @@ def main():
     parser_get_email.add_argument('email_id', help='Email ID from search results')
     parser_get_email.set_defaults(func=cmd_get_email)
     
-    # Reply command
-    parser_reply = subparsers.add_parser('reply', help='Reply to an email by ID (preview by default, use --send to send)')
+    # ReplyAll command (default — keeps everyone, --to/--cc append)
+    parser_replyall = subparsers.add_parser('replyall', help='Reply-all to an email (keeps original To+CC, --to/--cc append)')
+    parser_replyall.add_argument('email_id', help='Email ID from search results')
+    parser_replyall.add_argument('body', help='Reply text in HTML format')
+    parser_replyall.add_argument('--to', help='Additional To recipients (comma separated)')
+    parser_replyall.add_argument('--cc', help='Additional CC recipients (comma separated)')
+    parser_replyall.set_defaults(func=cmd_replyall)
+
+    # Reply command (specify mode — sender only, --to/--cc specify extras)
+    parser_reply = subparsers.add_parser('reply', help='Reply to sender only (--to/--cc specify exact extras)')
     parser_reply.add_argument('email_id', help='Email ID from search results')
     parser_reply.add_argument('body', help='Reply text in HTML format')
-    parser_reply.add_argument('--send', action='store_true', help='Send the email (default: preview only)')
-    parser_reply.add_argument('--to', help='Override To recipients (comma separated)')
-    parser_reply.add_argument('--cc', help='Override CC recipients (comma separated)')
+    parser_reply.add_argument('--to', help='Extra To recipients (comma separated)')
+    parser_reply.add_argument('--cc', help='Extra CC recipients (comma separated)')
     parser_reply.set_defaults(func=cmd_reply)
     
     # Compose command
@@ -788,6 +780,14 @@ def main():
     parser_compose.add_argument('--cc', help='CC recipients (comma separated)')
     parser_compose.set_defaults(func=cmd_compose)
     
+    # Forward command
+    parser_forward = subparsers.add_parser('forward', help='Forward an email to specified recipients')
+    parser_forward.add_argument('email_id', help='Email ID from search results')
+    parser_forward.add_argument('--to', required=True, help='To recipients (comma separated)')
+    parser_forward.add_argument('--cc', help='CC recipients (comma separated)')
+    parser_forward.add_argument('--body', help='Custom message to prepend')
+    parser_forward.set_defaults(func=cmd_forward)
+
     # Batch forward command
     parser_batch = subparsers.add_parser('batch-forward', help='Batch forward email by ID to multiple recipients')
     parser_batch.add_argument('email_id', help='Email ID from search results')
@@ -821,7 +821,21 @@ def main():
     parser_lookup = subparsers.add_parser('lookup-contact', help='Look up contact information by email address')
     parser_lookup.add_argument('email', help='Email address to look up')
     parser_lookup.set_defaults(func=cmd_lookup_contact)
-    
+
+    # Find thread command
+    parser_thread = subparsers.add_parser('find-thread', help='Find all emails in same conversation thread')
+    parser_thread.add_argument('email_id', help='Email ID from search results')
+    parser_thread.add_argument('--folders', type=str, default=None, help='Folders to search (default: Inbox,Sent Items)')
+    parser_thread.set_defaults(func=cmd_find_thread)
+
+    # Find related command
+    parser_related = subparsers.add_parser('find-related', help='Find emails related to a given email')
+    parser_related.add_argument('email_id', help='Email ID from search results')
+    parser_related.add_argument('--days', type=int, default=90, help='Days back for sender/keyword strategies')
+    parser_related.add_argument('--strategies', type=str, default=None, help='Strategies: thread,sender,keyword (default: all)')
+    parser_related.set_defaults(func=cmd_find_related)
+
+    # Index sync command
     # Parse arguments
     args = parser.parse_args()
     
