@@ -5,6 +5,7 @@ Command-line interface for Outlook email operations using email IDs
 
 import sys
 import os
+import re
 import argparse
 from typing import Optional
 
@@ -30,7 +31,7 @@ from backend.email_search import (
 )
 from backend.email_composition import compose_email
 from backend.outlook_session.contact_operations import get_contact_by_email, get_display_name_from_email
-from backend.config import search_config
+from backend.config import search_config, display_config
 
 
 def cmd_list_folders(args):
@@ -74,6 +75,68 @@ def _folder_emoji(folder_name: str) -> str:
     elif "deleted" in name_lower or "trash" in name_lower:
         return "\U0001F5D1"  # 🗑
     return "\U0001F4C1"  # 📁
+
+
+def _normalize_search_days(days: Optional[int]) -> int:
+    """Normalize direct find search days while preserving broad-search capability."""
+    if days is None:
+        return search_config.DIRECT_FIND_DEFAULT_DAYS
+    if days < 1:
+        return 1
+    return min(days, search_config.MAX_SEARCH_DAYS)
+
+
+def _build_body_preview(body_text: str) -> str:
+    """Build a compact terminal-safe preview from an email body."""
+    if not body_text:
+        return ""
+
+    stop_markers = (
+        'from:',
+        'sent:',
+        'subject:',
+        'to:',
+        'cc:',
+        'original message',
+        '-----original message-----',
+        'zjqcmqryfpfptbannerstart',
+        'zjqcmqryfpfptbannerend',
+        'notice:this is an external sender',
+        'this message is from an external sender',
+    )
+
+    preview_lines = []
+    preview_budget = max(getattr(display_config, 'PREVIEW_LENGTH', 200) * 2, 200)
+
+    for raw_line in body_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        lower = line.lower()
+        if any(marker in lower for marker in stop_markers):
+            break
+        if re.fullmatch(r'[_=\-\s]{5,}', line):
+            break
+        if line.startswith('<http') or line.startswith('http://') or line.startswith('https://'):
+            continue
+        if 'proofpoint.com' in lower or line == 'Report Suspicious':
+            continue
+
+        line = re.sub(r'\s+', ' ', line)
+        if not line:
+            continue
+
+        preview_lines.append(line)
+
+        if len(' '.join(preview_lines)) >= preview_budget or len(preview_lines) >= 4:
+            break
+
+    preview = re.sub(r'\s+', ' ', ' '.join(preview_lines)).strip()
+    max_preview_length = getattr(display_config, 'PREVIEW_LENGTH', 200)
+    if len(preview) > max_preview_length:
+        preview = preview[:max_preview_length].rstrip() + "..."
+    return preview
 
 
 def _display_email_list(emails, show_folder=True):
@@ -178,26 +241,9 @@ def _display_email_list(emails, show_folder=True):
             with OutlookSessionManager() as session:
                 email_item = session.outlook.GetNamespace("MAPI").GetItemFromID(email_id)
                 body_text = email_item.Body if hasattr(email_item, 'Body') else ""
-                if body_text:
-                    lines = body_text.split('\n')
-                    cleaned_lines = []
-                    for line in lines:
-                        stripped = line.strip()
-                        if any(sep in stripped for sep in [
-                            'From:', 'Sent:', '________________________________',
-                            '________________________________________________________________________________',
-                            'Original Message', '-----Original Message-----'
-                        ]):
-                            break
-                        if not cleaned_lines and not stripped:
-                            continue
-                        if stripped or (cleaned_lines and cleaned_lines[-1]):
-                            cleaned_lines.append(stripped if stripped else '')
-                    preview = '\n'.join(cleaned_lines).strip()
-                    if len(preview) > 800:
-                        preview = preview[:800] + "..."
-                    if preview:
-                        print(f"\nPreview:\n{preview}")
+                preview = _build_body_preview(body_text)
+                if preview:
+                    print(f"\nPreview: {preview}")
         except Exception:
             pass
 
@@ -207,6 +253,13 @@ def _display_email_list(emails, show_folder=True):
 def cmd_search(args):
     """Search emails and display with IDs - supports multi-folder."""
     try:
+        effective_days = _normalize_search_days(args.days)
+        if args.days != effective_days:
+            print(
+                f"\nℹ️ Direct find search window adjusted to {effective_days} days "
+                f"(allowed range: 1-{search_config.MAX_SEARCH_DAYS})."
+            )
+
         # Resolve folders for multi-folder search
         if args.folders:
             folder_names = [f.strip() for f in args.folders.split(',')]
@@ -215,7 +268,7 @@ def cmd_search(args):
 
         emails, note = unified_search(
             search_term=args.query,
-            days=args.days,
+            days=effective_days,
             folder_name=args.folder,
             folder_names=folder_names,
             match_all=args.match_all,
@@ -437,24 +490,10 @@ def cmd_compose(args):
     try:
         to_list = [x.strip() for x in args.to.split(",")] if args.to else []
         cc_list = [x.strip() for x in args.cc.split(",")] if args.cc else []
-        
-        # Replace literal \n with actual newlines
-        body = args.body.replace('\\n', '\n')
-        
-        # Convert plain text to HTML
-        # Split by double newlines to get paragraphs
-        paragraphs = body.split('\n\n')
-        html_body = '<html><body>\n'
-        for para in paragraphs:
-            # Replace single newlines with <br> within paragraphs
-            para = para.replace('\n', '<br>')
-            html_body += f'<p>{para}</p>\n'
-        html_body += '</body></html>'
-        
-        # Create email using Outlook COM API with HTML body
+
         with OutlookSessionManager() as session:
             mail = session.outlook.CreateItem(0)  # 0 = olMailItem
-            
+
             # Set recipients
             for recipient in to_list:
                 mail.Recipients.Add(recipient)
@@ -462,12 +501,16 @@ def cmd_compose(args):
                 for cc_recipient in cc_list:
                     cc_recip = mail.Recipients.Add(cc_recipient)
                     cc_recip.Type = 2  # 2 = olCC
-            
-            # Set subject and HTML body
+
             mail.Subject = args.subject
-            mail.HTMLBody = html_body
-            
-            # Send
+
+            # Display briefly to trigger Outlook signature insertion
+            mail.Display(False)
+
+            # Prepend body to signature HTML (same pattern as reply)
+            mail.HTMLBody = args.body + mail.HTMLBody
+
+            # Send (also closes the compose window)
             mail.Send()
             total_recipients = len(to_list) + len(cc_list)
             print(f"HTML email sent successfully to {total_recipients} recipient(s)")
@@ -745,7 +788,16 @@ def main():
     parser_search = subparsers.add_parser('find', help='Find emails by subject, sender, recipient, or body')
     parser_search.add_argument('--type', required=True, choices=['subject', 'sender', 'recipient', 'body'], help='Search type')
     parser_search.add_argument('--query', required=True, help='Search query')
-    parser_search.add_argument('--days', type=int, default=30, help=f'Days back to search (max {search_config.MAX_SEARCH_DAYS})')
+    parser_search.add_argument(
+        '--days',
+        type=int,
+        default=search_config.DIRECT_FIND_DEFAULT_DAYS,
+        help=(
+            f"Days back to search "
+            f"(default: {search_config.DIRECT_FIND_DEFAULT_DAYS}, "
+            f"allowed range: 1-{search_config.MAX_SEARCH_DAYS})"
+        ),
+    )
     parser_search.add_argument('--folder', type=str, default=None, help='Folder name (default: Inbox)')
     parser_search.add_argument('--folders', type=str, default=None, help='Comma-separated folder names for cross-folder search')
     parser_search.add_argument('--match-all', action='store_true', default=True, help='Match all terms (AND logic)')

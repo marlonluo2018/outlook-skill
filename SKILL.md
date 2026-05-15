@@ -33,15 +33,19 @@ py -3 scripts/outlook_skill.py find-recent --days 7
 
 ### Find Emails
 ```bash
-py -3 scripts/outlook_skill.py find --type subject --query "Name" --days 30
+py -3 scripts/outlook_skill.py find --type subject --query "Name" --days 14
 ```
 - Default folder depends on `--type`:
   - `sender`, `subject`, `body` → **Inbox** only
   - `recipient` → **Sent Items** only
 - `--type`: subject, sender, recipient, body
+- `recipient` search matches recipients in sent mail using **To + CC** fields and resolved Outlook recipient names/addresses
 - `--query`: search text (required)
-- `--days`: 1-365 (default: 30)
+- `--days`: 1-365 for direct `find` searches (default: 14)
 - `--folders`: use only when explicitly searching across folders (searches Inbox + Sent Items)
+- **AI guidance:** start with a small recent window first (usually 7-14 days)
+- If the first search does not find the email, widen the date range gradually and make the query more specific before broadening further
+- Use [`find-thread`](assistant_brain/skills/outlook-skill/SKILL.md:49) or [`find-related`](assistant_brain/skills/outlook-skill/SKILL.md:59) when older or broader history is needed
 
 ### Find Thread
 ```bash
@@ -50,6 +54,7 @@ py -3 scripts/outlook_skill.py find-thread "<email_id>"
 - **Auto-searches Inbox + Sent Items** — thread completeness requires both
 - Finds ALL emails sharing the same ConversationID
 - Subjects can differ (RE:/Fwd: prefixes, topic changes don't matter)
+- Uses a reliable full-folder scan path for conversation matching when Outlook filtering is inconsistent
 - Results sorted chronologically (oldest first)
 
 ### Find Related Emails
@@ -61,8 +66,10 @@ py -3 scripts/outlook_skill.py find-related "<email_id>"
 - Results sorted by relevance
 - Multi-strategy search for emails related to a given email:
   - **thread** (★5): Same ConversationID
-  - **sender** (★3): Same sender within time window
-  - **keyword** (★2): Shared subject keywords
+  - **sender** (★3): Same sender within time window, but only when the email also overlaps with the reference topic
+  - **keyword** (★2): Shared meaningful topic keywords from the subject/content
+- Generic noise terms such as external/training/request are intentionally ignored during keyword extraction
+- Sender and keyword matching are intentionally tighter to reduce unrelated same-sender and boilerplate matches
 - Results sorted by relevance (confidence score)
 - `--strategies`: comma-separated (default: all three)
 
@@ -179,13 +186,16 @@ class BatchConfig:
 
 ### Finding All Emails About a Topic
 ```bash
-# Step 1: Search
-py -3 scripts/outlook_skill.py find --type subject --query "voucher approval" --folders "Inbox,Sent Items" --days 90
+# Step 1: Start narrow and recent with a specific query
+py -3 scripts/outlook_skill.py find --type subject --query "voucher approval" --folders "Inbox,Sent Items" --days 14
 
-# Step 2: From any result, find the full thread
+# Step 2: If not found, widen the time window but make the query more specific
+py -3 scripts/outlook_skill.py find --type subject --query "voucher approval philippines" --folders "Inbox,Sent Items" --days 45
+
+# Step 3: From any result, find the full thread
 py -3 scripts/outlook_skill.py find-thread "<entry_id>"
 
-# Step 3: For even more context, find related across threads
+# Step 4: For even more context, find related across threads
 py -3 scripts/outlook_skill.py find-related "<entry_id>"
 ```
 

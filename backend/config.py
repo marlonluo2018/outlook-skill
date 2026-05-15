@@ -178,8 +178,9 @@ class SearchConfig:
     and search field preferences.
     """
 
-    MAX_SEARCH_DAYS = 365  # Maximum days to search back (configurable)
-    DEFAULT_SEARCH_DAYS = 7  # Default days if not specified
+    MAX_SEARCH_DAYS = 365  # Global maximum for all search operations
+    DEFAULT_SEARCH_DAYS = 7  # Generic default for internal callers unless overridden
+    DIRECT_FIND_DEFAULT_DAYS = 14  # Default days for direct `find` searches; AI should usually start narrow first
     RELATED_SEARCH_DAYS = 90  # Default lookback for find-related
     THREAD_SEARCH_DAYS = 365  # Thread search covers full history
 
