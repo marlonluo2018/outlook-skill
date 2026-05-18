@@ -84,8 +84,10 @@ py -3 scripts/outlook_skill.py lookup-contact "user@domain.com"
 ```bash
 py -3 scripts/outlook_skill.py replyall "<email_id>" "<p>HTML body</p>"
 py -3 scripts/outlook_skill.py replyall "<email_id>" "<p>HTML body</p>" --cc "extra@ibm.com"
+py -3 scripts/outlook_skill.py replyall "<email_id>" "<p>HTML body</p>" --attach "C:\path\file.pdf"
 ```
 - Keeps ALL original To + CC recipients. `--to`/`--cc` APPEND to existing.
+- `--attach`: File path(s) to attach (comma separated for multiple)
 - **This is the default reply command.** Use unless you need to narrow recipients.
 - **⚠️ ALWAYS show draft to user first — NEVER send before user approval**
 
@@ -93,14 +95,18 @@ py -3 scripts/outlook_skill.py replyall "<email_id>" "<p>HTML body</p>" --cc "ex
 ```bash
 py -3 scripts/outlook_skill.py reply "<email_id>" "<p>HTML body</p>"
 py -3 scripts/outlook_skill.py reply "<email_id>" "<p>HTML body</p>" --to "specific@ibm.com"
+py -3 scripts/outlook_skill.py reply "<email_id>" "<p>HTML body</p>" --attach "C:\path\file.pdf"
 ```
 - Replies to sender only. `--to`/`--cc` specify EXACT extra recipients (original To/CC NOT included).
+- `--attach`: File path(s) to attach (comma separated for multiple)
 - Use when you want to narrow the recipient list.
 
 ### Compose Email
 ```bash
 py -3 scripts/outlook_skill.py compose --to "email" --subject "text" --body "<p>HTML</p>"
+py -3 scripts/outlook_skill.py compose --to "email" --subject "text" --body "<p>HTML</p>" --attach "C:\path\file.pdf"
 ```
+- `--attach`: File path(s) to attach (comma separated for multiple)
 - **⚠️ ALWAYS show draft to user in chat window first — NEVER send before user approval**
 - AI presents the email as readable plain text in chat
 - Only call this command after user explicitly confirms "send" or "approve"
@@ -110,11 +116,13 @@ py -3 scripts/outlook_skill.py compose --to "email" --subject "text" --body "<p>
 ```bash
 py -3 scripts/outlook_skill.py forward "<email_id>" --to "user@domain.com"
 py -3 scripts/outlook_skill.py forward "<email_id>" --to "user1@ibm.com,user2@ibm.com" --cc "manager@ibm.com" --body "<p>FYI</p>"
+py -3 scripts/outlook_skill.py forward "<email_id>" --to "user@domain.com" --attach "C:\path\file.pdf"
 ```
 - Forwards an email to specified recipients
 - `--to` (required): Comma-separated list of To recipients
 - `--cc` (optional): Comma-separated list of CC recipients
 - `--body` (optional): Custom HTML message to prepend
+- `--attach` (optional): File path(s) to attach (comma separated for multiple)
 - Subject auto-prefixed with `FW:`
 - Preserves original email formatting
 - **⚠️ ALWAYS show draft to user first — NEVER send before user approval**

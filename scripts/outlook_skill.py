@@ -347,6 +347,19 @@ def _get_email_item(session, email_id):
         raise last_error
 
 
+def _add_attachments(mail_item, attach_str):
+    """Add file attachments to a mail item."""
+    if not attach_str:
+        return
+    import os
+    for filepath in attach_str.split(","):
+        filepath = filepath.strip().strip('"')
+        if not os.path.exists(filepath):
+            print(f"WARNING: Attachment not found: {filepath}")
+            continue
+        mail_item.Attachments.Add(filepath)
+
+
 def _format_forward_message_html(message_text: str) -> str:
     """Convert plain text or HTML-ish input into the simple prepended block used for forwards."""
     if not message_text:
@@ -436,6 +449,7 @@ def cmd_replyall(args):
                 return 1
 
             count = reply.Recipients.Count
+            _add_attachments(reply, args.attach)
             reply.Send()
             print(f"ReplyAll sent to {count} recipient(s)")
             return 0
@@ -477,6 +491,7 @@ def cmd_reply(args):
                 return 1
 
             count = reply.Recipients.Count
+            _add_attachments(reply, args.attach)
             reply.Send()
             print(f"Reply sent to {count} recipient(s)")
             return 0
@@ -510,7 +525,7 @@ def cmd_compose(args):
             # Prepend body to signature HTML (same pattern as reply)
             mail.HTMLBody = args.body + mail.HTMLBody
 
-            # Send (also closes the compose window)
+            _add_attachments(mail, args.attach)
             mail.Send()
             total_recipients = len(to_list) + len(cc_list)
             print(f"HTML email sent successfully to {total_recipients} recipient(s)")
@@ -626,6 +641,7 @@ def cmd_forward(args):
             recipient_count = forward.Recipients.Count
             final_subject = str(getattr(forward, "Subject", original_subject))
 
+            _add_attachments(forward, args.attach)
             forward.Send()
             print(f"Forward sent to {recipient_count} recipient(s)")
             print(f"Subject: {final_subject}")
@@ -814,6 +830,7 @@ def main():
     parser_replyall.add_argument('body', help='Reply text in HTML format')
     parser_replyall.add_argument('--to', help='Additional To recipients (comma separated)')
     parser_replyall.add_argument('--cc', help='Additional CC recipients (comma separated)')
+    parser_replyall.add_argument('--attach', help='File path(s) to attach (comma separated)')
     parser_replyall.set_defaults(func=cmd_replyall)
 
     # Reply command (specify mode — sender only, --to/--cc specify extras)
@@ -822,6 +839,7 @@ def main():
     parser_reply.add_argument('body', help='Reply text in HTML format')
     parser_reply.add_argument('--to', help='Extra To recipients (comma separated)')
     parser_reply.add_argument('--cc', help='Extra CC recipients (comma separated)')
+    parser_reply.add_argument('--attach', help='File path(s) to attach (comma separated)')
     parser_reply.set_defaults(func=cmd_reply)
     
     # Compose command
@@ -830,6 +848,7 @@ def main():
     parser_compose.add_argument('--subject', required=True, help='Email subject')
     parser_compose.add_argument('--body', required=True, help='Email body')
     parser_compose.add_argument('--cc', help='CC recipients (comma separated)')
+    parser_compose.add_argument('--attach', help='File path(s) to attach (comma separated)')
     parser_compose.set_defaults(func=cmd_compose)
     
     # Forward command
@@ -838,6 +857,7 @@ def main():
     parser_forward.add_argument('--to', required=True, help='To recipients (comma separated)')
     parser_forward.add_argument('--cc', help='CC recipients (comma separated)')
     parser_forward.add_argument('--body', help='Custom message to prepend')
+    parser_forward.add_argument('--attach', help='File path(s) to attach (comma separated)')
     parser_forward.set_defaults(func=cmd_forward)
 
     # Batch forward command
