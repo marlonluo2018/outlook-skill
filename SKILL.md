@@ -135,16 +135,14 @@ py -3 scripts/outlook_skill.py lookup-contact "HONG YANG"
 
 ### Reply
 
-The **preferred Codex/PowerShell method** is to build the current body in memory, encode it as UTF-8 Base64, and pass it via `--body-base64`. This avoids console/pipe encoding issues and avoids stale temp body files. Direct `--body` is acceptable only for short, single-line HTML.
+The **safe execution method** is either Python inline Base64 or `--body-file` to avoid shell variable interpolation of numbers, currencies, or symbols (like `$60` or `%`).
 
-```powershell
-$body = "<p>Thank you for the update.</p>"
-$body64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($body))
-py -3 scripts/outlook_skill.py reply "<email_id>" --body-base64 $body64
-py -3 scripts/outlook_skill.py reply "<email_id>" --body-base64 $body64 --cc "extra@ibm.com"
-py -3 scripts/outlook_skill.py reply "<email_id>" --body-base64 $body64 --attach "C:\path\file.pdf"
-py -3 scripts/outlook_skill.py reply "<email_id>" --body-base64 $body64 --importance high
-py -3 scripts/outlook_skill.py reply "<email_id>" --body-base64 $body64 --only
+```bash
+# Method 1 (Preferred): Python inline Base64
+py -3 -c "import base64, subprocess, sys; b64 = base64.b64encode('''<p>Thank you for the update.</p>'''.encode('utf-8')).decode('ascii'); sys.exit(subprocess.call(['py', '-3', 'assistant_brain/skills/outlook-com-skill/scripts/outlook_skill.py', 'reply', '<email_id>', '--body-base64', b64, '--cc', 'extra@ibm.com', '--attach', 'C:/path/file.pdf']))"
+
+# Method 2: Temporary body file
+py -3 assistant_brain/skills/outlook-com-skill/scripts/outlook_skill.py reply "<email_id>" --body-file "downloads/body.html" --cc "extra@ibm.com" --attach "C:/path/file.pdf"
 ```
 
 - **Default: reply-all** — keeps ALL original To + CC recipients. `--to`/`--cc` APPEND to existing.
@@ -157,15 +155,12 @@ py -3 scripts/outlook_skill.py reply "<email_id>" --body-base64 $body64 --only
 
 ### Compose Email
 
-The **preferred Codex/PowerShell method** is `--body-base64`. Direct `--body` is acceptable only for short, single-line HTML.
+```bash
+# Method 1 (Preferred): Python inline Base64
+py -3 -c "import base64, subprocess, sys; b64 = base64.b64encode('''<p>Message text.</p>'''.encode('utf-8')).decode('ascii'); sys.exit(subprocess.call(['py', '-3', 'assistant_brain/skills/outlook-com-skill/scripts/outlook_skill.py', 'compose', '--to', 'email@ibm.com', '--subject', 'text', '--body-base64', b64, '--attach', 'C:/path/file.pdf']))"
 
-```powershell
-$body = "<p>Message text.</p>"
-$body64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($body))
-py -3 scripts/outlook_skill.py compose --to "email" --subject "text" --body-base64 $body64
-py -3 scripts/outlook_skill.py compose --to "email" --subject "text" --body-base64 $body64 --attach "C:\path\file.pdf"
-py -3 scripts/outlook_skill.py compose --to "email" --subject "text" --body-base64 $body64 --importance high
-py -3 scripts/outlook_skill.py compose --to "email" --subject "text" --body-base64 $body64 --inline-image "C:\path\img.png:pic1"
+# Method 2: Temporary body file
+py -3 assistant_brain/skills/outlook-com-skill/scripts/outlook_skill.py compose --to "email@ibm.com" --subject "text" --body-file "downloads/body.html" --attach "C:/path/file.pdf"
 ```
 
 - `--attach`: File path(s) to attach (comma separated for multiple)
@@ -406,38 +401,31 @@ class BatchConfig:
 <ul><li>Item one</li><li>Item two</li></ul>
 ```
 
-## Special Characters in Email Body
+## Shell-Safe Email Body Transport (MANDATORY POLICY)
 
-**Windows/PowerShell rule:** Do not pipe normal PowerShell strings into `--body-stdin` for send operations when the body contains non-ASCII characters. The native-command pipe can pass text through a console code page and silently convert characters such as bullets, curly apostrophes, em dashes, and Chinese characters to `?`.
+> **⚠️ CRITICAL: NEVER construct email bodies by embedding unescaped strings inside PowerShell/Bash command strings (e.g. `powershell -Command "..."` or `$body = "..."`).**
+> Any dollar sign followed by a number or character (e.g., `$60`, `$500`, `$15,000`, `$var`) will be silently evaluated by Bash / PowerShell as an empty variable, causing severe corruption (e.g., `$60 USD` silently turning into `0 USD`).
 
-**Preferred safe method for Codex / PowerShell: `--body-base64`**
+### The ONLY Approved Methods to Pass Email Bodies:
 
-- Build the current draft body in a PowerShell variable.
-- Encode that exact variable as UTF-8 Base64.
-- Pass the Base64 string with `--body-base64`.
-- The CLI decodes it back to UTF-8 before writing the Outlook HTML body.
-- No temp file is used, so there is no stale-file risk.
+#### Method 1 (Primary - Python Inline Base64 via py -3):
+Encode the body directly in Python and pass to `outlook_skill.py` via `--body-base64` in a single command, without going through Bash/PowerShell variable interpolation:
 
-```powershell
-$body = @'
-<p>Support ticket path:<br>
-- Go to https://connect.redhat.com/en/support<br>
-- Select I don't have an account for faster response<br>
-- Select General Support<br>
-- Select User Access</p>
-'@
-$body64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($body))
-py -3 scripts/outlook_skill.py reply "<id>" --body-base64 $body64
+```bash
+py -3 -c "import base64, subprocess, sys; body = '''<p>Hello team,</p><p>The cost is $60 USD.</p>'''; b64 = base64.b64encode(body.encode('utf-8')).decode('ascii'); sys.exit(subprocess.call(['py', '-3', 'assistant_brain/skills/outlook-com-skill/scripts/outlook_skill.py', 'reply', '<entry_id>', '--body-base64', b64]))"
 ```
 
-**Direct `--body` is also safe for short, single-line HTML** because Windows command-line arguments are Unicode. For long multi-line bodies, prefer `--body-base64` to avoid quoting/newline problems.
+#### Method 2 (Safe Body File via `--body-file`):
+Write the body text to a temporary file using the assistant's file tools, then pass `--body-file`:
 
-**Avoid for send operations in PowerShell:**
-
-```powershell
-# WRONG for non-ASCII: may turn bullets/curly quotes into ?
-$body | py -3 scripts/outlook_skill.py reply "<id>" --body-stdin
+```bash
+py -3 assistant_brain/skills/outlook-com-skill/scripts/outlook_skill.py reply "<entry_id>" --body-file "downloads/email_body.html"
 ```
+
+**FORBIDDEN PATTERNS:**
+- ❌ `powershell -Command "$body = @'...'@; ..."` inside bash (Bash expands `$60` inside double quotes before PowerShell even sees it).
+- ❌ `$body | py -3 ... --body-stdin`
+- ❌ Direct `--body "text with $60"` in Bash without escaping `\$60`.
 
 **Style rule:** Prefer plain ASCII hyphens (`-`) and straight apostrophes (`'`) in outbound email bodies unless special characters are necessary.
 ## Find Workflow for Email Addresses
